@@ -1,6 +1,8 @@
 #include "BookStatsActivity.h"
 
 #include <I18n.h>
+#include <Logging.h>
+#include <Memory.h>
 
 #include "BookStatsView.h"
 #include "MappedInputManager.h"
@@ -69,6 +71,39 @@ void BookStatsActivity::refreshAllDevicesStats() {
   if (showAllDevicesStats) {
     allDevicesStats = GlobalReadingStats::loadAggregated(globalStats);
   }
+}
+
+void BookStatsActivity::setPendingSession(const std::string& title, const ReadingStatsDateTime& localStart,
+                                          const uint32_t seconds) {
+  // Mirror commitReadingSession(), which ignores sessions under 10 seconds.
+  if (seconds < 10 || !localStart.isValid()) return;
+  pendingSessionTitle = title;
+  pendingSessionStart = localStart;
+  pendingSessionSeconds = seconds;
+}
+
+void BookStatsActivity::ensureReadingWindowLoaded() {
+  if (readingWindow || !hasReadingToday) return;
+  readingWindow = makeUniqueNoThrow<DailyReadingWindow>();
+  if (!readingWindow) {
+    LOG_ERR("BookStats", "Out of memory loading reading history");
+    return;
+  }
+  const uint32_t todayIndex = readingStatsDayIndex(readingToday);
+  const uint32_t firstDay = todayIndex + 1 >= READING_LOG_WINDOW_DAYS ? todayIndex + 1 - READING_LOG_WINDOW_DAYS : 0;
+  readingWindow->load(firstDay, todayIndex);
+  if (pendingSessionSeconds > 0) {
+    readingWindow->addSpan(pendingSessionTitle.c_str(), pendingSessionStart, pendingSessionSeconds);
+  }
+}
+
+int BookStatsActivity::pageIndicatorCount() const { return (showAllDevicesStats ? 3 : 2) + 1 + readingWeekCount; }
+
+int BookStatsActivity::pageIndicatorIndex() const {
+  const int summaryIndex = showAllDevicesStats ? 3 : 2;
+  if (page == Page::ReadingSummary) return summaryIndex;
+  if (page == Page::ReadingWeek) return summaryIndex + 1 + readingWeek;
+  return static_cast<int>(page);
 }
 
 void BookStatsActivity::saveStats() {
@@ -276,6 +311,10 @@ void BookStatsActivity::onEnter() {
   ignoreInitialConfirmRelease = mappedInput.isPressed(MappedInputManager::Button::Confirm);
   ignoreInitialPowerRelease = mappedInput.isPressed(MappedInputManager::Button::Power);
   if (bookCachePath.empty()) page = Page::ThisDevice;
+  ReadingStatsDateTime now;
+  hasReadingToday = getCurrentLocalReadingStatsDateTime(now);
+  readingToday = now.date;
+  readingWeekCount = hasReadingToday ? readingLogWeekCount(readingToday) : 0;
   previousOrientation = renderer.getOrientation();
   renderer.setOrientation(GfxRenderer::Orientation::Portrait);
   requestUpdate();
@@ -309,10 +348,46 @@ bool BookStatsActivity::showNextStatsPage() {
     return true;
   }
 
+  if (page == Page::ThisDevice || page == Page::AllDevices) {
+    ensureReadingWindowLoaded();
+    page = Page::ReadingSummary;
+    requestUpdate();
+    return true;
+  }
+
+  if (page == Page::ReadingSummary && readingWeekCount > 0) {
+    readingWeek = 0;
+    page = Page::ReadingWeek;
+    requestUpdate();
+    return true;
+  }
+
+  if (page == Page::ReadingWeek && readingWeek + 1 < readingWeekCount) {
+    readingWeek++;
+    requestUpdate();
+    return true;
+  }
+
   return false;
 }
 
 bool BookStatsActivity::showPreviousStatsPage() {
+  if (page == Page::ReadingWeek) {
+    if (readingWeek > 0) {
+      readingWeek--;
+    } else {
+      page = Page::ReadingSummary;
+    }
+    requestUpdate();
+    return true;
+  }
+
+  if (page == Page::ReadingSummary) {
+    page = showAllDevicesStats ? Page::AllDevices : Page::ThisDevice;
+    requestUpdate();
+    return true;
+  }
+
   if (page == Page::AllDevices) {
     page = Page::ThisDevice;
     requestUpdate();
@@ -478,7 +553,7 @@ void BookStatsActivity::loop() {
     return;
   }
 
-  if (page == Page::ThisDevice && showAllDevicesStats && downOrRightPressed) {
+  if (downOrRightPressed) {
     showNextStatsPage();
   }
 }
@@ -498,18 +573,24 @@ void BookStatsActivity::render(RenderLock&&) {
                              estimatedTimeLeftSeconds, true, hasEditableBook(), true);
       break;
     case Page::ThisDevice:
-      renderGlobalStatsPage(renderer, &mappedInput, tr(STR_STATS_THIS_DEVICE_SCREEN), globalStats, true,
-                            showAllDevicesStats);
+      renderGlobalStatsPage(renderer, &mappedInput, tr(STR_STATS_THIS_DEVICE_SCREEN), globalStats, true, true);
       break;
     case Page::AllDevices:
-      renderGlobalStatsPage(renderer, &mappedInput, tr(STR_STATS_ALL_DEVICES_SCREEN), allDevicesStats, true, false);
+      renderGlobalStatsPage(renderer, &mappedInput, tr(STR_STATS_ALL_DEVICES_SCREEN), allDevicesStats, true, true);
+      break;
+    case Page::ReadingSummary:
+      renderReadingSummaryPage(renderer, &mappedInput, readingWindow.get(), readingToday, true);
+      break;
+    case Page::ReadingWeek:
+      renderReadingWeekPage(renderer, &mappedInput, readingWindow.get(), readingToday, readingWeek, true,
+                            readingWeek + 1 < readingWeekCount);
       break;
     case Page::EditDates:
       renderEditBookDatesPage(renderer, &mappedInput, bookTitle, stats, selectedEditField, true);
       break;
   }
   if (page != Page::EditDates) {
-    drawPageIndicators(renderer, static_cast<int>(page), showAllDevicesStats ? 3 : 2);
+    drawPageIndicators(renderer, pageIndicatorIndex(), pageIndicatorCount());
   }
   renderer.displayBuffer();
 }

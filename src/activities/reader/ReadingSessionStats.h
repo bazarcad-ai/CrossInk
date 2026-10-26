@@ -7,8 +7,9 @@
 // Adds one finished tracking session to the book and global totals. Sessions of
 // at least 60 seconds count as a session; at least 10 seconds add reading time.
 // sessionStart may be null when no RTC time was available at session start.
+// With a start time, the session is also added to the per-day log under bookTitle.
 void commitReadingSession(BookReadingStats& book, GlobalReadingStats& global, uint32_t seconds,
-                          const ReadingStatsDateTime* sessionStart);
+                          const ReadingStatsDateTime* sessionStart, const char* bookTitle);
 
 // Copies the fields BookStatsActivity can edit from the on-disk copy, keeping
 // the reader's live counters. The stats screen saves a preview that already
