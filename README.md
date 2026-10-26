@@ -1,3 +1,7 @@
+> [!NOTE]
+> **Fork:** this branch adds a permanent per-day, per-book **Reading History** with a Last 30 Days summary and weekly pages in Reading Stats.
+> See [Reading History](./docs/reading-history.md) for usage, installation, and compatibility notes.
+
 > **This is a personal fork of [CrossPoint Reader](https://github.com/crosspoint-reader/crosspoint-reader)** with a focus on improved fonts and minimal reading stats.
 
 ### Supported Devices
