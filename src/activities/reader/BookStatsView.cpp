@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <array>
 #include <cstdio>
+#include <string>
 
 #include "MappedInputManager.h"
 #include "components/CompactHeader.h"
@@ -461,6 +462,25 @@ void drawDateAdjustButton(const GfxRenderer& renderer, const int x, const int y,
       bitmap, freeink::ui::BitmapMode::Center,
       [&renderer](const int16_t px, const int16_t py) { renderer.drawPixel(px, py, true); });
 }
+// Draws left text (truncated to fit) and right-aligned value on one row.
+void drawLabelValueRow(const GfxRenderer& renderer, const int fontId, const int x, const int w, const int y,
+                       const char* label, const char* value, const EpdFontFamily::Style style) {
+  constexpr int kLabelValueGap = 12;
+  const int valueW = renderer.getTextWidth(fontId, value, style);
+  renderer.drawText(fontId, x + w - valueW, y, value, true, style);
+  const int labelMaxW = std::max(0, w - valueW - kLabelValueGap);
+  const std::string fitted = renderer.truncatedText(fontId, label, labelMaxW, style);
+  renderer.drawText(fontId, x, y, fitted.c_str(), true, style);
+}
+
+void formatLast7DaysDuration(const uint32_t seconds, char* buf, const size_t len) {
+  if (seconds == 0) {
+    snprintf(buf, len, "-");
+    return;
+  }
+  formatCompactReadingDuration(seconds, buf, len);
+}
+
 }  // namespace
 
 void renderPerBookStatsPage(GfxRenderer& renderer, const MappedInputManager* mappedInput, const std::string& bookTitle,
@@ -752,6 +772,124 @@ void renderEditBookDatesPage(GfxRenderer& renderer, const MappedInputManager* ma
   if (showButtonHints && mappedInput) {
     const auto labels = mappedInput->mapLabels(mappedInput->withBackArrow(tr(STR_BACK)), tr(STR_NEXT_FIELD),
                                                tr(STR_DIR_UP), tr(STR_DIR_DOWN));
+    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4, true);
+  }
+}
+
+void renderLast7DaysPage(GfxRenderer& renderer, const MappedInputManager* mappedInput, const DailyReadingLog* log,
+                         const ReadingStatsDate& today, const bool showButtonHints) {
+  constexpr int kDayCount = static_cast<int>(DailyReadingLog::WINDOW_DAYS);
+  constexpr int kBookIndent = 16;
+  constexpr int kRowPadding = 6;
+  constexpr int kDayGap = 6;
+
+  renderer.clearScreen();
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  const char* screenTitle = tr(STR_STATS_LAST_7_DAYS);
+  if (mappedInput && mappedInput->hasTouchHardware()) {
+    TouchHeaderBackButton::drawCompact(renderer, screenTitle, false);
+  } else {
+    CompactHeader::drawTitle(renderer, screenTitle);
+  }
+
+  // Order entries newest day first, longest book first, then slice per day.
+  // Index arrays keep this to ~100 bytes of stack instead of copying entries.
+  const uint32_t todayIndex = readingStatsDayIndex(today);
+  std::array<uint8_t, DailyReadingLog::MAX_ENTRIES> order{};
+  uint8_t orderCount = 0;
+  const uint8_t entryCount = log ? log->count : 0;
+  for (uint8_t i = 0; i < entryCount; ++i) {
+    const uint32_t day = log->entries[i].dayIndex;
+    if (day <= todayIndex && todayIndex - day < DailyReadingLog::WINDOW_DAYS) order[orderCount++] = i;
+  }
+  std::sort(order.begin(), order.begin() + orderCount, [log](const uint8_t a, const uint8_t b) {
+    const auto& lhs = log->entries[a];
+    const auto& rhs = log->entries[b];
+    if (lhs.dayIndex != rhs.dayIndex) return lhs.dayIndex > rhs.dayIndex;
+    return lhs.seconds > rhs.seconds;
+  });
+  std::array<uint8_t, kDayCount> dayStart{};
+  std::array<uint8_t, kDayCount> dayBooks{};
+  std::array<uint32_t, kDayCount> daySeconds{};
+  uint32_t weekSeconds = 0;
+  for (uint8_t i = 0; i < orderCount; ++i) {
+    const auto& entry = log->entries[order[i]];
+    const int d = static_cast<int>(todayIndex - entry.dayIndex);
+    if (dayBooks[d] == 0) dayStart[d] = i;
+    dayBooks[d]++;
+    daySeconds[d] += entry.seconds;
+    weekSeconds += entry.seconds;
+  }
+
+  const int screenW = renderer.getScreenWidth();
+  const int x = metrics.contentSidePadding;
+  const int w = screenW - metrics.contentSidePadding * 2;
+  const auto& layout = kDefaultLayout;
+  int y = metrics.topPadding + statsHeaderHeight(metrics, layout, mappedInput) + layout.topGap;
+  const int bottom = renderer.getScreenHeight() - statsBottomInset(metrics, showButtonHints);
+
+  char value[24];
+  const int totalRowH = renderer.getLineHeight(UI_12_FONT_ID) + kRowPadding * 2;
+  formatLast7DaysDuration(weekSeconds, value, sizeof(value));
+  drawLabelValueRow(renderer, UI_12_FONT_ID, x, w, y + kRowPadding, tr(STR_STATS_WEEK_TOTAL), value,
+                    EpdFontFamily::BOLD);
+  y += totalRowH;
+  renderer.drawLine(x, y, x + w, y);
+  y += kDayGap;
+
+  // Show as many books per day as fit; the rest collapse into one "+N more" row.
+  const int dayRowH = renderer.getLineHeight(UI_10_FONT_ID) + kRowPadding;
+  const int bookRowH = renderer.getLineHeight(SMALL_FONT_ID) + kRowPadding;
+  const int bookRowsAvailable = std::max(0, (bottom - y - kDayCount * (dayRowH + kDayGap)) / bookRowH);
+  int maxBooksPerDay = *std::max_element(dayBooks.begin(), dayBooks.end());
+  for (; maxBooksPerDay > 0; --maxBooksPerDay) {
+    int rows = 0;
+    for (const uint8_t books : dayBooks) rows += std::min<int>(books, maxBooksPerDay) + (books > maxBooksPerDay);
+    if (rows <= bookRowsAvailable) break;
+  }
+
+  char dayLabel[32];
+  for (int d = 0; d < kDayCount; ++d) {
+    ReadingStatsDate date = today;
+    addDaysToReadingStatsDate(date, -d);
+    if (d == 0) {
+      snprintf(dayLabel, sizeof(dayLabel), "%s", tr(STR_STATS_TODAY));
+    } else if (d == 1) {
+      snprintf(dayLabel, sizeof(dayLabel), "%s", tr(STR_STATS_YESTERDAY));
+    } else {
+      char shortDate[16];
+      formatReadingStatsShortDate(date, shortDate, sizeof(shortDate));
+      snprintf(dayLabel, sizeof(dayLabel), "%s %s", I18N.get(DAY_LABELS[readingStatsDayOfWeekIndex(date)]),
+               shortDate);
+    }
+    formatLast7DaysDuration(daySeconds[d], value, sizeof(value));
+    drawLabelValueRow(renderer, UI_10_FONT_ID, x, w, y, dayLabel, value, EpdFontFamily::BOLD);
+    y += dayRowH;
+
+    const int shownBooks = std::min<int>(dayBooks[d], maxBooksPerDay);
+    uint32_t hiddenSeconds = daySeconds[d];
+    for (int b = 0; b < shownBooks; ++b) {
+      const auto& entry = log->entries[order[dayStart[d] + b]];
+      hiddenSeconds -= entry.seconds;
+      formatLast7DaysDuration(entry.seconds, value, sizeof(value));
+      drawLabelValueRow(renderer, SMALL_FONT_ID, x + kBookIndent, w - kBookIndent, y,
+                        entry.title[0] ? entry.title : tr(STR_STATS_UNTITLED), value, EpdFontFamily::REGULAR);
+      y += bookRowH;
+    }
+    if (dayBooks[d] > shownBooks) {
+      char moreLabel[32];
+      snprintf(moreLabel, sizeof(moreLabel), "+%d %s", dayBooks[d] - shownBooks, tr(STR_STATS_MORE_BOOKS));
+      formatLast7DaysDuration(hiddenSeconds, value, sizeof(value));
+      drawLabelValueRow(renderer, SMALL_FONT_ID, x + kBookIndent, w - kBookIndent, y, moreLabel, value,
+                        EpdFontFamily::REGULAR);
+      y += bookRowH;
+    }
+    y += kDayGap;
+  }
+
+  if (showButtonHints && mappedInput) {
+    const auto labels =
+        mappedInput->mapLabels(mappedInput->withBackArrow(tr(STR_EXIT)), "", mappedInput->withBackArrow(tr(STR_BACK)), "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4, true);
   }
 }

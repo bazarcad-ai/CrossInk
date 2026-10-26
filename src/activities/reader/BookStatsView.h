@@ -3,6 +3,7 @@
 #include <string>
 
 #include "BookReadingStats.h"
+#include "DailyReadingLog.h"
 #include "GlobalReadingStats.h"
 
 class GfxRenderer;
@@ -36,3 +37,8 @@ void renderNoRtcCombinedStatsPage(GfxRenderer& renderer, const MappedInputManage
 
 void renderEditBookDatesPage(GfxRenderer& renderer, const MappedInputManager* mappedInput, const std::string& bookTitle,
                              const BookReadingStats& stats, int selectedField, bool showButtonHints);
+
+// Day-by-day reading time for the 7 local days ending on today, with per-book rows.
+// A null log renders the empty week.
+void renderLast7DaysPage(GfxRenderer& renderer, const MappedInputManager* mappedInput, const DailyReadingLog* log,
+                         const ReadingStatsDate& today, bool showButtonHints);

@@ -1,7 +1,9 @@
 #include "ReadingSessionStats.h"
 
+#include "DailyReadingLog.h"
+
 void commitReadingSession(BookReadingStats& book, GlobalReadingStats& global, const uint32_t seconds,
-                          const ReadingStatsDateTime* sessionStart) {
+                          const ReadingStatsDateTime* sessionStart, const char* bookTitle) {
   // Page intervals longer than the idle threshold are rejected before they
   // reach the session total, so seconds is active reading time.
   if (seconds >= 60) {
@@ -14,6 +16,7 @@ void commitReadingSession(BookReadingStats& book, GlobalReadingStats& global, co
   if (!sessionStart) return;
   book.recordReadingSpan(*sessionStart, seconds);
   global.recordReadingSpan(*sessionStart, seconds);
+  DailyReadingLog::recordSession(bookTitle, *sessionStart, seconds);
   if (seconds >= 120 && !book.startDateManual && !book.startDate.isValid()) {
     book.startDate = sessionStart->date;
   }

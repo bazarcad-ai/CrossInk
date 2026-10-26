@@ -2,14 +2,16 @@
 
 #include <HalClock.h>
 
+#include <memory>
 #include <string>
 
 #include "../Activity.h"
 #include "BookReadingStats.h"
+#include "DailyReadingLog.h"
 #include "GlobalReadingStats.h"
 
 class BookStatsActivity final : public Activity {
-  enum class Page : uint8_t { PerBook, ThisDevice, AllDevices, EditDates };
+  enum class Page : uint8_t { PerBook, ThisDevice, AllDevices, Last7Days, EditDates };
 
   std::string bookTitle;
   std::string bookCachePath;
@@ -32,6 +34,11 @@ class BookStatsActivity final : public Activity {
   bool ignoreInitialBackRelease = false;
   bool ignoreInitialConfirmRelease = false;
   bool ignoreInitialPowerRelease = false;
+  // Loaded when the Last 7 Days page is first shown; ~3.6 KB, so heap-owned.
+  std::unique_ptr<DailyReadingLog> dailyLog;
+  std::string pendingSessionTitle;
+  ReadingStatsDateTime pendingSessionStart;
+  uint32_t pendingSessionSeconds = 0;
 
   bool hasEditableBook() const { return !bookCachePath.empty() && halClock.isAvailable(); }
   bool usesNoRtcSingleScreenLayout() const { return !halClock.isAvailable(); }
@@ -50,6 +57,9 @@ class BookStatsActivity final : public Activity {
   bool showPreviousStatsPage();
   bool showNextStatsPage();
   bool selectEditFieldFromTouchTarget(int touchTarget);
+  void ensureDailyLogLoaded();
+  int pageIndicatorIndex() const;
+  int pageIndicatorCount() const;
 
  public:
   BookStatsActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, const std::string& title,
@@ -60,6 +70,9 @@ class BookStatsActivity final : public Activity {
                     const std::string& bookCachePath, const BookReadingStats& stats, float progressPercent,
                     bool hasEstimatedTimeLeft, uint32_t estimatedTimeLeftSeconds, const GlobalReadingStats& globalStats,
                     const GlobalReadingStats& allDevicesStats, bool returnToHomeOnExit = false);
+
+  // Adds the reader's not-yet-committed session to the Last 7 Days page only.
+  void setPendingSession(const std::string& title, const ReadingStatsDateTime& localStart, uint32_t seconds);
 
   void onEnter() override;
   void onExit() override;

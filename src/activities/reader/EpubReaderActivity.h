@@ -36,6 +36,8 @@ struct ToastRect {
   int h = 0;
 };
 
+class BookStatsActivity;
+
 class EpubReaderActivity final : public Activity {
  public:
   bool usesFullScreenReaderVerticalSwipes() const override { return true; }
@@ -387,6 +389,8 @@ class EpubReaderActivity final : public Activity {
   void armReadingPaceWarmup(const char* reason = "unknown");
   bool forwardPageReadElapsed(uint32_t& seconds, const char* source) const;
   bool currentPageReadingSecondsForStats(uint32_t& seconds, const char* source) const;
+  // Gives the stats screen the uncommitted session for its Last 7 Days page.
+  void attachPendingDailySession(BookStatsActivity& activity, const char* source) const;
   void recordCurrentPageReadingTime(const char* source = "unknown");
   void recordForwardPagePaceSample(uint32_t seconds, const char* source);
   bool getSessionAveragePaceSeconds(uint16_t& avgSeconds) const;
