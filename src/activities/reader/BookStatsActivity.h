@@ -11,7 +11,7 @@
 #include "GlobalReadingStats.h"
 
 class BookStatsActivity final : public Activity {
-  enum class Page : uint8_t { PerBook, ThisDevice, AllDevices, Last7Days, EditDates };
+  enum class Page : uint8_t { PerBook, ThisDevice, AllDevices, ReadingSummary, ReadingWeek, EditDates };
 
   std::string bookTitle;
   std::string bookCachePath;
@@ -34,8 +34,12 @@ class BookStatsActivity final : public Activity {
   bool ignoreInitialBackRelease = false;
   bool ignoreInitialConfirmRelease = false;
   bool ignoreInitialPowerRelease = false;
-  // Loaded when the Last 7 Days page is first shown; ~3.6 KB, so heap-owned.
-  std::unique_ptr<DailyReadingLog> dailyLog;
+  // Loaded when the reading log pages are first shown; ~4.2 KB, so heap-owned.
+  std::unique_ptr<DailyReadingWindow> readingWindow;
+  ReadingStatsDate readingToday;
+  bool hasReadingToday = false;
+  int readingWeekCount = 0;
+  int readingWeek = 0;
   std::string pendingSessionTitle;
   ReadingStatsDateTime pendingSessionStart;
   uint32_t pendingSessionSeconds = 0;
@@ -57,7 +61,7 @@ class BookStatsActivity final : public Activity {
   bool showPreviousStatsPage();
   bool showNextStatsPage();
   bool selectEditFieldFromTouchTarget(int touchTarget);
-  void ensureDailyLogLoaded();
+  void ensureReadingWindowLoaded();
   int pageIndicatorIndex() const;
   int pageIndicatorCount() const;
 
@@ -71,7 +75,7 @@ class BookStatsActivity final : public Activity {
                     bool hasEstimatedTimeLeft, uint32_t estimatedTimeLeftSeconds, const GlobalReadingStats& globalStats,
                     const GlobalReadingStats& allDevicesStats, bool returnToHomeOnExit = false);
 
-  // Adds the reader's not-yet-committed session to the Last 7 Days page only.
+  // Adds the reader's not-yet-committed session to the reading log pages only.
   void setPendingSession(const std::string& title, const ReadingStatsDateTime& localStart, uint32_t seconds);
 
   void onEnter() override;

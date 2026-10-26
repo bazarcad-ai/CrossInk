@@ -82,23 +82,28 @@ void BookStatsActivity::setPendingSession(const std::string& title, const Readin
   pendingSessionSeconds = seconds;
 }
 
-void BookStatsActivity::ensureDailyLogLoaded() {
-  if (dailyLog) return;
-  dailyLog = makeUniqueNoThrow<DailyReadingLog>();
-  if (!dailyLog) {
-    LOG_ERR("BookStats", "Out of memory loading daily reading log");
+void BookStatsActivity::ensureReadingWindowLoaded() {
+  if (readingWindow || !hasReadingToday) return;
+  readingWindow = makeUniqueNoThrow<DailyReadingWindow>();
+  if (!readingWindow) {
+    LOG_ERR("BookStats", "Out of memory loading reading history");
     return;
   }
-  dailyLog->load();
+  const uint32_t todayIndex = readingStatsDayIndex(readingToday);
+  const uint32_t firstDay =
+      todayIndex + 1 >= READING_LOG_WINDOW_DAYS ? todayIndex + 1 - READING_LOG_WINDOW_DAYS : 0;
+  readingWindow->load(firstDay, todayIndex);
   if (pendingSessionSeconds > 0) {
-    dailyLog->addSpan(pendingSessionTitle.c_str(), pendingSessionStart, pendingSessionSeconds);
+    readingWindow->addSpan(pendingSessionTitle.c_str(), pendingSessionStart, pendingSessionSeconds);
   }
 }
 
-int BookStatsActivity::pageIndicatorCount() const { return showAllDevicesStats ? 4 : 3; }
+int BookStatsActivity::pageIndicatorCount() const { return (showAllDevicesStats ? 3 : 2) + 1 + readingWeekCount; }
 
 int BookStatsActivity::pageIndicatorIndex() const {
-  if (page == Page::Last7Days) return pageIndicatorCount() - 1;
+  const int summaryIndex = showAllDevicesStats ? 3 : 2;
+  if (page == Page::ReadingSummary) return summaryIndex;
+  if (page == Page::ReadingWeek) return summaryIndex + 1 + readingWeek;
   return static_cast<int>(page);
 }
 
@@ -307,6 +312,10 @@ void BookStatsActivity::onEnter() {
   ignoreInitialConfirmRelease = mappedInput.isPressed(MappedInputManager::Button::Confirm);
   ignoreInitialPowerRelease = mappedInput.isPressed(MappedInputManager::Button::Power);
   if (bookCachePath.empty()) page = Page::ThisDevice;
+  ReadingStatsDateTime now;
+  hasReadingToday = getCurrentLocalReadingStatsDateTime(now);
+  readingToday = now.date;
+  readingWeekCount = hasReadingToday ? readingLogWeekCount(readingToday) : 0;
   previousOrientation = renderer.getOrientation();
   renderer.setOrientation(GfxRenderer::Orientation::Portrait);
   requestUpdate();
@@ -341,8 +350,21 @@ bool BookStatsActivity::showNextStatsPage() {
   }
 
   if (page == Page::ThisDevice || page == Page::AllDevices) {
-    ensureDailyLogLoaded();
-    page = Page::Last7Days;
+    ensureReadingWindowLoaded();
+    page = Page::ReadingSummary;
+    requestUpdate();
+    return true;
+  }
+
+  if (page == Page::ReadingSummary && readingWeekCount > 0) {
+    readingWeek = 0;
+    page = Page::ReadingWeek;
+    requestUpdate();
+    return true;
+  }
+
+  if (page == Page::ReadingWeek && readingWeek + 1 < readingWeekCount) {
+    readingWeek++;
     requestUpdate();
     return true;
   }
@@ -351,7 +373,17 @@ bool BookStatsActivity::showNextStatsPage() {
 }
 
 bool BookStatsActivity::showPreviousStatsPage() {
-  if (page == Page::Last7Days) {
+  if (page == Page::ReadingWeek) {
+    if (readingWeek > 0) {
+      readingWeek--;
+    } else {
+      page = Page::ReadingSummary;
+    }
+    requestUpdate();
+    return true;
+  }
+
+  if (page == Page::ReadingSummary) {
     page = showAllDevicesStats ? Page::AllDevices : Page::ThisDevice;
     requestUpdate();
     return true;
@@ -547,13 +579,13 @@ void BookStatsActivity::render(RenderLock&&) {
     case Page::AllDevices:
       renderGlobalStatsPage(renderer, &mappedInput, tr(STR_STATS_ALL_DEVICES_SCREEN), allDevicesStats, true, true);
       break;
-    case Page::Last7Days: {
-      ReadingStatsDateTime now;
-      const bool hasToday = getCurrentLocalReadingStatsDateTime(now);
-      renderLast7DaysPage(renderer, &mappedInput, hasToday ? dailyLog.get() : nullptr,
-                          hasToday ? now.date : ReadingStatsDate{2000, 1, 1}, true);
+    case Page::ReadingSummary:
+      renderReadingSummaryPage(renderer, &mappedInput, readingWindow.get(), readingToday, true);
       break;
-    }
+    case Page::ReadingWeek:
+      renderReadingWeekPage(renderer, &mappedInput, readingWindow.get(), readingToday, readingWeek, true,
+                            readingWeek + 1 < readingWeekCount);
+      break;
     case Page::EditDates:
       renderEditBookDatesPage(renderer, &mappedInput, bookTitle, stats, selectedEditField, true);
       break;
