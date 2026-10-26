@@ -3,6 +3,7 @@
 #include <HalStorage.h>
 #include <Logging.h>
 
+#include <algorithm>
 #include <cstring>
 #include <limits>
 
@@ -163,7 +164,7 @@ bool copyEntriesMerging(FsFile& source, FsFile& dest, uint32_t entryCount, const
                         const size_t segmentCount) {
   uint8_t buffer[COPY_CHUNK_ENTRIES * ENTRY_RECORD_SIZE];
   while (entryCount > 0) {
-    const size_t chunkEntries = entryCount < COPY_CHUNK_ENTRIES ? entryCount : COPY_CHUNK_ENTRIES;
+    const size_t chunkEntries = std::min<size_t>(entryCount, COPY_CHUNK_ENTRIES);
     const size_t chunkBytes = chunkEntries * ENTRY_RECORD_SIZE;
     if (source.read(buffer, chunkBytes) != static_cast<int>(chunkBytes)) return false;
     for (size_t i = 0; i < chunkEntries; ++i) {
@@ -226,8 +227,7 @@ bool publishTmp() {
 }
 }  // namespace
 
-bool DailyReadingLog::recordSession(const char* title, const ReadingStatsDateTime& localStart,
-                                    const uint32_t seconds) {
+bool DailyReadingLog::recordSession(const char* title, const ReadingStatsDateTime& localStart, const uint32_t seconds) {
   if (!localStart.isValid() || seconds == 0) return false;
   if (s_blockWrites) {
     LOG_ERR("RHIST", "Skipping reading history write after newer-format file was detected");
@@ -342,7 +342,7 @@ bool DailyReadingWindow::load(const uint32_t firstDayIndex, const uint32_t lastD
   uint8_t buffer[COPY_CHUNK_ENTRIES * ENTRY_RECORD_SIZE];
   uint32_t remaining = header.entryCount;
   while (ok && remaining > 0) {
-    const size_t chunkEntries = remaining < COPY_CHUNK_ENTRIES ? remaining : COPY_CHUNK_ENTRIES;
+    const size_t chunkEntries = std::min<size_t>(remaining, COPY_CHUNK_ENTRIES);
     const size_t chunkBytes = chunkEntries * ENTRY_RECORD_SIZE;
     ok = f.read(buffer, chunkBytes) == static_cast<int>(chunkBytes);
     for (size_t i = 0; ok && i < chunkEntries; ++i) {

@@ -776,7 +776,6 @@ void renderEditBookDatesPage(GfxRenderer& renderer, const MappedInputManager* ma
   }
 }
 
-
 namespace {
 
 int dayOfWeekForIndex(const ReadingStatsDate& today, const uint32_t todayIndex, const uint32_t dayIndex) {
@@ -947,7 +946,8 @@ void renderReadingSummaryPage(GfxRenderer& renderer, const MappedInputManager* m
   y += weekCardH + layout.cardGap;
 
   // Top Books card: as many of the most-read books as fit.
-  const int availableBookRows = (bottom - y - layout.sectionTitleH - layout.chartTopPadding - layout.chartBottomPadding) / rowH;
+  const int availableBookRows =
+      (bottom - y - layout.sectionTitleH - layout.chartTopPadding - layout.chartBottomPadding) / rowH;
   const int bookLimit = std::min(kTopBookLimit, availableBookRows);
   if (bookLimit <= 0) {
     drawReadingLogButtonHints(renderer, mappedInput, showButtonHints, true);

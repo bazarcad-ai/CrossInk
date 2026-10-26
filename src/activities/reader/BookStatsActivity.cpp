@@ -90,8 +90,7 @@ void BookStatsActivity::ensureReadingWindowLoaded() {
     return;
   }
   const uint32_t todayIndex = readingStatsDayIndex(readingToday);
-  const uint32_t firstDay =
-      todayIndex + 1 >= READING_LOG_WINDOW_DAYS ? todayIndex + 1 - READING_LOG_WINDOW_DAYS : 0;
+  const uint32_t firstDay = todayIndex + 1 >= READING_LOG_WINDOW_DAYS ? todayIndex + 1 - READING_LOG_WINDOW_DAYS : 0;
   readingWindow->load(firstDay, todayIndex);
   if (pendingSessionSeconds > 0) {
     readingWindow->addSpan(pendingSessionTitle.c_str(), pendingSessionStart, pendingSessionSeconds);

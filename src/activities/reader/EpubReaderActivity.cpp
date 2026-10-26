@@ -4460,15 +4460,14 @@ std::unique_ptr<Activity> EpubReaderActivity::createFrontlightReadingStatsActivi
   displayStats.estimatedTimeLeftSeconds = hasEstimatedTimeLeft ? estimatedTimeLeftSeconds : 0;
   const bool hasSyncedStats = GlobalReadingStats::hasSyncedStats();
   std::unique_ptr<BookStatsActivity> statsActivity =
-      hasSyncedStats ? makeUniqueNoThrow<BookStatsActivity>(renderer, mappedInput, epub->getTitle(),
-                                                            epub->getCachePath(), displayStats,
-                                                            getCurrentBookProgressPercent(), hasEstimatedTimeLeft,
-                                                            estimatedTimeLeftSeconds, globalStats,
-                                                            GlobalReadingStats::loadAggregated(globalStats))
-                     : makeUniqueNoThrow<BookStatsActivity>(renderer, mappedInput, epub->getTitle(),
-                                                            epub->getCachePath(), displayStats,
-                                                            getCurrentBookProgressPercent(), hasEstimatedTimeLeft,
-                                                            estimatedTimeLeftSeconds, globalStats);
+      hasSyncedStats
+          ? makeUniqueNoThrow<BookStatsActivity>(renderer, mappedInput, epub->getTitle(), epub->getCachePath(),
+                                                 displayStats, getCurrentBookProgressPercent(), hasEstimatedTimeLeft,
+                                                 estimatedTimeLeftSeconds, globalStats,
+                                                 GlobalReadingStats::loadAggregated(globalStats))
+          : makeUniqueNoThrow<BookStatsActivity>(renderer, mappedInput, epub->getTitle(), epub->getCachePath(),
+                                                 displayStats, getCurrentBookProgressPercent(), hasEstimatedTimeLeft,
+                                                 estimatedTimeLeftSeconds, globalStats);
   if (statsActivity) attachPendingDailySession(*statsActivity, "frontlight_stats_daily_preview");
   return statsActivity;
 }
