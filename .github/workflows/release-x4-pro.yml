@@ -1,0 +1,109 @@
+name: Fork Release (X4 Pro)
+
+# Builds the X4 Pro firmware for this fork and publishes it as a GitHub
+# Release. Fork-only: upstream releases use release.yml, which needs secrets
+# this fork does not have.
+#
+# Trigger by pushing a tag such as v1.6.1-rh.1 (upstream version + fork build).
+on:
+  push:
+    tags:
+      - "v*-rh.*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: fork-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      PIO_ENV: x4-pro
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Resolve release version
+        id: version
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          VERSION="${TAG#v}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          version: "latest"
+          enable-cache: true
+
+      - name: Cache PlatformIO packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio/packages
+            ~/.platformio/platforms
+          key: ${{ runner.os }}-platformio-py3.14-core6.1.19-${{ hashFiles('platformio.ini', 'platformio.local.example.ini') }}
+
+      - name: Install PlatformIO Core
+        run: uv pip install --system -U https://github.com/pioarduino/platformio-core/archive/refs/tags/v6.1.19.zip
+
+      - name: Pin pioarduino core inside the platform penv
+        run: |
+          set -euo pipefail
+          # Same workaround as release.yml: custom_sdkconfig runs a nested
+          # `pio run` from ~/.platformio/penv.
+          pio pkg install -e "$PIO_ENV"
+          uv pip install --python ~/.platformio/penv/bin/python "pioarduino==6.1.19"
+
+      - name: Configure release version
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          sed -i "/^\[crossink\]$/,/^\[/s/^version = .*/version = $RELEASE_VERSION/" platformio.ini
+
+      - name: Build X4 Pro firmware
+        env:
+          CROSSINK_RELEASE_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          pio run -j1 -e "$PIO_ENV" | tee pio.log
+          OUT="CrossInk-x4-pro-${{ steps.version.outputs.version }}.bin"
+          cp ".pio/build/$PIO_ENV/firmware.bin" "$OUT"
+          sha256sum "$OUT" > "$OUT.sha256"
+          echo "FIRMWARE=$OUT" >> "$GITHUB_ENV"
+          {
+            echo "## X4 Pro firmware ${{ steps.version.outputs.version }}"
+            grep -E "RAM:\s|Flash:\s" pio.log | while read -r line; do echo "- ${line}"; done
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          cat > notes.md <<'EOF'
+          Fork build of CrossInk for the **Xteink X4 Pro** with the Reading History feature
+          (Last 30 Days summary and weekly pages in Reading Stats).
+          See [docs/reading-history.md](https://github.com/${{ github.repository }}/blob/${{ steps.version.outputs.tag }}/docs/reading-history.md).
+
+          **Install:** back up the SD card's `/.crosspoint/` folder, copy the `.bin` below to the SD card,
+          then choose **Settings > System > SD Card Firmware Update**.
+          X4 Pro only; do not install on X3/X4, Sticky, or X4 Classic.
+
+          Not an official CrossInk release.
+          EOF
+          gh release create "$TAG" "$FIRMWARE" "$FIRMWARE.sha256" \
+            --repo "${{ github.repository }}" \
+            --title "CrossInk X4 Pro $TAG (Reading History)" \
+            --notes-file notes.md

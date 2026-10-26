@@ -69,8 +69,28 @@ standard stats:
 
 ## Installing
 
-There is no prebuilt download; you build the firmware from this branch. You
-need [PlatformIO](https://platformio.org/install/cli) and a USB-C data cable.
+### Download a release (X4 Pro)
+
+Prebuilt X4 Pro firmware is on the fork's
+[Releases page](https://github.com/bazarcad-ai/CrossInk/releases). Each release
+is named after the upstream version it is based on plus a fork build number,
+for example `v1.6.1-rh.1`. Download `CrossInk-x4-pro-<version>.bin` and install
+it with the SD card method below. Releases are X4 Pro only.
+
+Releases are built by `.github/workflows/release-x4-pro.yml` whenever a tag
+matching `v*-rh.*` is pushed:
+
+```sh
+git tag v1.6.1-rh.1 && git push fork v1.6.1-rh.1
+```
+
+The device's built-in online update checks official CrossInk only. When a newer
+official version comes out it offers that build, which replaces this fork's
+firmware (stats are kept). Install the matching fork release instead.
+
+### Build it yourself
+
+You need [PlatformIO](https://platformio.org/install/cli) and a USB-C data cable.
 
 ```sh
 git clone --recursive -b feat/reading-history https://github.com/bazarcad-ai/CrossInk
